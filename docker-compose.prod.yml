@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # 1. MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: studynest-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: studynest
+    volumes:
+      - studynest_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # 2. Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: studynest-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - studynest_qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # 3. StudyNest Express API Server
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: studynest-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      CLIENT_URL: http://localhost
+      MONGODB_URI: mongodb://mongodb:27017/studynest
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: studynest_documents
+      JWT_SECRET: ${JWT_SECRET:-studynest_super_secret_jwt_production_key_2026}
+      JWT_EXPIRES_IN: 7d
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      CLOUDFLARE_BASE_URL: ${CLOUDFLARE_BASE_URL}
+      CLOUDFLARE_CHAT_MODEL: ${CLOUDFLARE_CHAT_MODEL:-@cf/meta/llama-3.2-3b-instruct}
+      CLOUDFLARE_EMBEDDING_MODEL: ${CLOUDFLARE_EMBEDDING_MODEL:-@cf/baai/bge-base-en-v1.5}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+      RATE_LIMIT_GENERAL_WINDOW_MS: 900000
+      RATE_LIMIT_GENERAL_MAX: 200
+      RATE_LIMIT_AUTH_WINDOW_MS: 900000
+      RATE_LIMIT_AUTH_MAX: 15
+      RATE_LIMIT_AI_WINDOW_MS: 60000
+      RATE_LIMIT_AI_MAX: 20
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - studynest_server_uploads:/app/uploads
+
+  # 4. StudyNest React Client (Nginx Reverse Proxy)
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: studynest-client
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+
+volumes:
+  studynest_mongo_data:
+    name: studynest_mongo_data
+  studynest_qdrant_storage:
+    name: studynest_qdrant_storage
+  studynest_server_uploads:
+    name: studynest_server_uploads
+

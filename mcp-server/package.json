@@ -1,0 +1,18 @@
+{
+  "name": "studynest-mcp-server",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server for StudyNest educational workspaces",
+  "main": "src/index.js",
+  "type": "module",
+  "bin": {
+    "studynest-mcp": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "dotenv": "^16.4.7"
+  }
+}
+

@@ -1,0 +1,41 @@
+{
+  "name": "studynest-server",
+  "version": "1.0.0",
+  "description": "StudyNest Express Backend with Cloudflare Workers AI and LangChain",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test:ai": "node src/scripts/verify-ai.js",
+    "test:phase2": "node src/scripts/verify-phase2.js",
+    "test:phase3": "node src/scripts/verify-phase3.js",
+    "test:phase4": "node src/scripts/verify-phase4.js",
+    "test:phase5": "node src/scripts/verify-phase5.js",
+    "test:phase6": "node src/scripts/verify-phase6.js",
+    "test:phase7": "node src/scripts/verify-phase7.js",
+    "test:phase8": "node src/scripts/verify-phase8.js",
+    "test:eval": "node src/tests/evaluation/retrieval.eval.js"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.40",
+    "@langchain/openai": "^0.4.4",
+    "@langchain/textsplitters": "^0.1.0",
+    "@qdrant/js-client-rest": "^1.20.0",
+    "argon2": "^0.45.2",
+    "compression": "^1.8.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.3",
+    "express-validator": "^7.3.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.10.1",
+    "multer": "^2.5.0",
+    "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
