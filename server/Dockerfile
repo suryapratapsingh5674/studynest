@@ -1,18 +1,18 @@
 # --- StudyNest Backend Production Dockerfile ---
 FROM node:20-alpine AS base
 
-# Install wget for healthcheck
-RUN apk add --no-cache wget
+# Install build dependencies for native modules and curl/wget for healthcheck
+RUN apk add --no-cache curl wget python3 make g++
 
 WORKDIR /app
 
 # Set production environment
 ENV NODE_ENV=production
-ENV PORT=5000
+ENV PORT=3000
 
-# Install production dependencies
+# Install dependencies allowing build scripts (required for argon2 native bindings)
 COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy application source code
 COPY src ./src
@@ -23,12 +23,13 @@ RUN mkdir -p uploads && chown -R node:node /app
 # Switch to unprivileged user
 USER node
 
-# Expose server port
+# Expose server port (both 3000 and 5000)
+EXPOSE 3000
 EXPOSE 5000
 
 # Container healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:5000/api/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-3000}/api/health || exit 1
 
 # Start production server
 CMD ["node", "src/server.js"]
