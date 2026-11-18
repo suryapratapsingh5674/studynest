@@ -117,19 +117,37 @@ export const deleteDocumentVectors = async (documentId, userId) => {
 export const searchVectors = async ({ queryVector, userId, notebookId, limit = 5 }) => {
   const qdrant = getQdrantClient();
 
-  const searchResults = await qdrant.search(config.qdrantCollection, {
-    vector: queryVector,
-    limit,
-    with_payload: true,
-    filter: {
-      must: [
-        { key: 'userId', match: { value: userId.toString() } },
-        { key: 'notebookId', match: { value: notebookId.toString() } },
-      ],
-    },
-  });
+  const filter = {
+    must: [
+      { key: 'userId', match: { value: userId.toString() } },
+      { key: 'notebookId', match: { value: notebookId.toString() } },
+    ],
+  };
 
-  return searchResults.map((hit) => ({
+  let hits = [];
+
+  // Qdrant JS client v1.11+ uses Universal Query API (query), while older clients used search
+  if (typeof qdrant.query === 'function') {
+    const res = await qdrant.query(config.qdrantCollection, {
+      query: queryVector,
+      limit,
+      with_payload: true,
+      filter,
+    });
+    hits = res?.points || (Array.isArray(res) ? res : []);
+  } else if (typeof qdrant.search === 'function') {
+    const res = await qdrant.search(config.qdrantCollection, {
+      vector: queryVector,
+      limit,
+      with_payload: true,
+      filter,
+    });
+    hits = Array.isArray(res) ? res : (res?.points || []);
+  } else {
+    throw new Error('Qdrant client does not support query or search operations.');
+  }
+
+  return (hits || []).map((hit) => ({
     score: hit.score,
     ...hit.payload,
   }));
