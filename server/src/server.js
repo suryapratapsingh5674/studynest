@@ -35,6 +35,16 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Apply general rate limiting across all API endpoints
 app.use('/api', generalLimiter);
 
+// Root endpoint for platform health probes & sanity check
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    app: 'StudyNest API',
+    message: 'StudyNest API is operational.',
+    healthCheck: '/api/health',
+  });
+});
+
 // Comprehensive Health Check Route
 app.get('/api/health', (req, res) => {
   const mongoStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
