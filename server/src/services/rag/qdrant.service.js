@@ -27,6 +27,31 @@ export const extractQdrantError = (err) => {
 };
 
 /**
+ * Ensures payload indexes exist for filtered attributes in Qdrant.
+ * Required for multi-tenant isolation (userId, notebookId, documentId).
+ */
+export const ensurePayloadIndexes = async () => {
+  const qdrant = getQdrantClient();
+  const collectionName = config.qdrantCollection;
+  const fields = ['userId', 'notebookId', 'documentId'];
+
+  for (const field_name of fields) {
+    try {
+      await qdrant.createPayloadIndex(collectionName, {
+        field_name,
+        field_schema: 'keyword',
+        wait: true,
+      });
+    } catch (err) {
+      const msg = extractQdrantError(err);
+      if (!msg.toLowerCase().includes('already exists') && !msg.toLowerCase().includes('acknowledged')) {
+        console.warn(`[Qdrant Payload Index Info] ${field_name}:`, msg);
+      }
+    }
+  }
+};
+
+/**
  * Ensures the StudyNest documents collection exists in Qdrant with the verified
  * 768-dimension configuration and Cosine distance metric.
  */
@@ -68,6 +93,9 @@ export const ensureCollection = async () => {
         console.warn('[Qdrant Info Check Warning]:', infoErr.message);
       }
     }
+
+    // Always ensure payload indices exist for multi-tenant filtering
+    await ensurePayloadIndexes();
 
     return true;
   } catch (error) {
