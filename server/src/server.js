@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import config from './config/env.js';
 import { connectDB } from './config/db.js';
+import { getQdrantClient, extractQdrantError } from './services/rag/qdrant.service.js';
 import { generalLimiter } from './middleware/rateLimiter.js';
 import authRoutes from './routes/auth.routes.js';
 import notebookRoutes from './routes/notebook.routes.js';
@@ -68,9 +69,27 @@ app.get('/', (req, res) => {
 });
 
 // Comprehensive Health Check Handler
-const healthCheckHandler = (req, res) => {
+const healthCheckHandler = async (req, res) => {
   const mongoStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
   const memUsage = process.memoryUsage();
+
+  const vectorDbStatus = {
+    provider: 'Qdrant',
+    url: config.qdrantUrl,
+    collection: config.qdrantCollection,
+    connected: false,
+  };
+
+  try {
+    const qdrant = getQdrantClient();
+    const info = await qdrant.getCollection(config.qdrantCollection);
+    vectorDbStatus.connected = true;
+    vectorDbStatus.pointsCount = info.points_count || info.vectors_count || 0;
+    vectorDbStatus.vectorSize = info.config?.params?.vectors?.size;
+  } catch (err) {
+    vectorDbStatus.connected = false;
+    vectorDbStatus.error = extractQdrantError(err);
+  }
 
   res.status(200).json({
     status: 'ok',
@@ -83,11 +102,7 @@ const healthCheckHandler = (req, res) => {
         status: mongoStates[mongoose.connection.readyState] || 'unknown',
         connected: mongoose.connection.readyState === 1,
       },
-      vectorDb: {
-        provider: 'Qdrant',
-        url: config.qdrantUrl,
-        collection: config.qdrantCollection,
-      },
+      vectorDb: vectorDbStatus,
       aiProvider: {
         provider: 'Cloudflare Workers AI',
         chatModel: config.cloudflare.chatModel,

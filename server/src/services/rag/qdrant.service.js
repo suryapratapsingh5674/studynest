@@ -18,6 +18,14 @@ export const getQdrantClient = () => {
   return client;
 };
 
+export const extractQdrantError = (err) => {
+  if (err?.data?.status?.error) return err.data.status.error;
+  if (err?.response?.data?.status?.error) return err.response.data.status.error;
+  if (err?.data?.error) return err.data.error;
+  if (typeof err?.data === 'string') return err.data;
+  return err?.message || 'Qdrant Error';
+};
+
 /**
  * Ensures the StudyNest documents collection exists in Qdrant with the verified
  * 768-dimension configuration and Cosine distance metric.
@@ -25,27 +33,48 @@ export const getQdrantClient = () => {
 export const ensureCollection = async () => {
   const qdrant = getQdrantClient();
   const collectionName = config.qdrantCollection;
+  const targetDimension = config.cloudflare.embeddingDimension || 768;
 
   try {
     const collections = await qdrant.getCollections();
     const exists = collections.collections?.some((c) => c.name === collectionName);
 
     if (!exists) {
-      console.log(`[Qdrant] Creating collection "${collectionName}" (Dim: ${config.cloudflare.embeddingDimension}, Metric: Cosine)...`);
+      console.log(`[Qdrant] Creating collection "${collectionName}" (Dim: ${targetDimension}, Metric: Cosine)...`);
       await qdrant.createCollection(collectionName, {
         vectors: {
-          size: config.cloudflare.embeddingDimension, // 768
+          size: targetDimension,
           distance: 'Cosine',
         },
       });
       console.log(`[Qdrant] Collection "${collectionName}" created successfully.`);
+    } else {
+      // Validate vector dimensions match the embedding model (768)
+      try {
+        const info = await qdrant.getCollection(collectionName);
+        const currentSize = info.config?.params?.vectors?.size;
+        if (currentSize && currentSize !== targetDimension) {
+          console.warn(`[Qdrant Dimension Mismatch]: Existing collection has dim ${currentSize}, target is ${targetDimension}. Recreating...`);
+          await qdrant.deleteCollection(collectionName);
+          await qdrant.createCollection(collectionName, {
+            vectors: {
+              size: targetDimension,
+              distance: 'Cosine',
+            },
+          });
+          console.log(`[Qdrant] Recreated collection "${collectionName}" with dim ${targetDimension}.`);
+        }
+      } catch (infoErr) {
+        console.warn('[Qdrant Info Check Warning]:', infoErr.message);
+      }
     }
 
     return true;
   } catch (error) {
-    console.error(`[Qdrant Error]: Could not ensure collection "${collectionName}":`, error.message);
+    const detail = extractQdrantError(error);
+    console.error(`[Qdrant Error]: Could not ensure collection "${collectionName}":`, detail);
     throw new Error(
-      `Qdrant Vector Database connection error: ${error.message}. Is Qdrant running on ${config.qdrantUrl}? (Run 'npm run qdrant:up')`
+      `Qdrant Vector Database connection error: ${detail}. Is Qdrant running on ${config.qdrantUrl}?`
     );
   }
 };
@@ -116,6 +145,7 @@ export const deleteDocumentVectors = async (documentId, userId) => {
  */
 export const searchVectors = async ({ queryVector, userId, notebookId, limit = 5 }) => {
   const qdrant = getQdrantClient();
+  await ensureCollection();
 
   const filter = {
     must: [
@@ -126,25 +156,31 @@ export const searchVectors = async ({ queryVector, userId, notebookId, limit = 5
 
   let hits = [];
 
-  // Qdrant JS client v1.11+ uses Universal Query API (query), while older clients used search
-  if (typeof qdrant.query === 'function') {
-    const res = await qdrant.query(config.qdrantCollection, {
-      query: queryVector,
-      limit,
-      with_payload: true,
-      filter,
-    });
-    hits = res?.points || (Array.isArray(res) ? res : []);
-  } else if (typeof qdrant.search === 'function') {
-    const res = await qdrant.search(config.qdrantCollection, {
-      vector: queryVector,
-      limit,
-      with_payload: true,
-      filter,
-    });
-    hits = Array.isArray(res) ? res : (res?.points || []);
-  } else {
-    throw new Error('Qdrant client does not support query or search operations.');
+  try {
+    // Qdrant JS client v1.11+ uses Universal Query API (query), while older clients used search
+    if (typeof qdrant.query === 'function') {
+      const res = await qdrant.query(config.qdrantCollection, {
+        query: queryVector,
+        limit,
+        with_payload: true,
+        filter,
+      });
+      hits = res?.points || (Array.isArray(res) ? res : []);
+    } else if (typeof qdrant.search === 'function') {
+      const res = await qdrant.search(config.qdrantCollection, {
+        vector: queryVector,
+        limit,
+        with_payload: true,
+        filter,
+      });
+      hits = Array.isArray(res) ? res : (res?.points || []);
+    } else {
+      throw new Error('Qdrant client does not support query or search operations.');
+    }
+  } catch (err) {
+    const detail = extractQdrantError(err);
+    console.error('[Qdrant Search Error Detail]:', detail, err?.data || err?.response?.data);
+    throw new Error(detail);
   }
 
   return (hits || []).map((hit) => ({
