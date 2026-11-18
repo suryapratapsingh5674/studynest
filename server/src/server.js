@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
@@ -66,8 +67,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// Comprehensive Health Check Route
-app.get('/api/health', (req, res) => {
+// Comprehensive Health Check Handler
+const healthCheckHandler = (req, res) => {
   const mongoStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
   const memUsage = process.memoryUsage();
 
@@ -109,7 +110,10 @@ app.get('/api/health', (req, res) => {
       },
     },
   });
-});
+};
+
+app.get('/api/health', healthCheckHandler);
+app.get('/health', healthCheckHandler);
 
 // Mount application API routes (both /api and top-level for client resilience)
 app.use('/api/auth', authRoutes);
@@ -130,16 +134,18 @@ app.use('/', studyToolsRoutes);
 app.use('/api/mcp', mcpRoutes);
 app.use('/mcp', mcpRoutes);
 
-// In production, serve static assets and handle SPA fallback
+// In production, serve static assets and handle SPA fallback if client dist exists
 if (config.nodeEnv === 'production') {
   const clientDist = path.resolve(__dirname, '../../client/dist');
-  app.use(express.static(clientDist));
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api')) {
-      return next();
-    }
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
+  if (fs.existsSync(path.join(clientDist, 'index.html'))) {
+    app.use(express.static(clientDist));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/health')) {
+        return next();
+      }
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
+  }
 }
 
 // 404 handler for undefined API routes
@@ -159,11 +165,20 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Process-level crash prevention & diagnostics
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL Uncaught Exception]:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL Unhandled Rejection]:', reason);
+});
+
 const startServer = async () => {
-  const port = process.env.PORT || config.port || 5000;
+  const port = parseInt(process.env.PORT, 10) || config.port || 3000;
 
   // 1. Immediately bind to 0.0.0.0 so cloud reverse proxies and health probes pass
-  app.listen(port, '0.0.0.0', () => {
+  const server = app.listen(port, '0.0.0.0', () => {
     console.log(`[StudyNest API] Server listening on 0.0.0.0:${port}`);
     console.log(`[StudyNest API] Environment: ${config.nodeEnv}`);
     console.log(`[StudyNest API] Health Check: http://0.0.0.0:${port}/api/health`);
@@ -173,10 +188,17 @@ const startServer = async () => {
   connectDB().catch((err) => {
     console.error('[MongoDB Startup Warning]:', err.message);
   });
+
+  return server;
 };
 
-// Start server if executed directly
-if (process.argv[1]?.endsWith('server.js')) {
+// Start server automatically in production or when executed as application entry point
+const shouldAutoStart = 
+  process.env.NODE_ENV === 'production' || 
+  process.argv[1]?.includes('server') || 
+  !process.env.NO_AUTO_START;
+
+if (shouldAutoStart && process.env.NODE_ENV !== 'test') {
   startServer();
 }
 
