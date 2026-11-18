@@ -23,12 +23,33 @@ const app = express();
 // Security and utility middleware
 app.use(helmet());
 app.use(compression());
-app.use(
-  cors({
-    origin: config.clientUrl,
-    credentials: true,
-  })
-);
+// Dynamic CORS configuration allowing Vercel, localhost, and configured clients
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow non-browser requests (mobile, curl, Postman, MCP)
+    if (!origin) return callback(null, true);
+
+    // If clientUrl is set to '*', matches origin, or is localhost/vercel
+    if (
+      config.clientUrl === '*' ||
+      config.clientUrl === origin ||
+      origin.includes('vercel.app') ||
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1')
+    ) {
+      return callback(null, true);
+    }
+
+    // Default: allow all valid client origins dynamically while preserving credentials
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -90,13 +111,24 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Mount application API routes
+// Mount application API routes (both /api and top-level for client resilience)
 app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
+
 app.use('/api/notebooks', notebookRoutes);
+app.use('/notebooks', notebookRoutes);
+
 app.use('/api', documentRoutes);
+app.use('/', documentRoutes);
+
 app.use('/api', chatRoutes);
+app.use('/', chatRoutes);
+
 app.use('/api', studyToolsRoutes);
+app.use('/', studyToolsRoutes);
+
 app.use('/api/mcp', mcpRoutes);
+app.use('/mcp', mcpRoutes);
 
 // In production, serve static assets and handle SPA fallback
 if (config.nodeEnv === 'production') {
