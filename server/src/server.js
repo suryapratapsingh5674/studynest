@@ -160,13 +160,18 @@ app.use((err, req, res, next) => {
 });
 
 const startServer = async () => {
-  // Connect to MongoDB
-  await connectDB();
+  const port = process.env.PORT || config.port || 5000;
 
-  app.listen(config.port, () => {
-    console.log(`[StudyNest API] Server running on http://localhost:${config.port}`);
+  // 1. Immediately bind to 0.0.0.0 so cloud reverse proxies and health probes pass
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`[StudyNest API] Server listening on 0.0.0.0:${port}`);
     console.log(`[StudyNest API] Environment: ${config.nodeEnv}`);
-    console.log(`[StudyNest API] Health Check: http://localhost:${config.port}/api/health`);
+    console.log(`[StudyNest API] Health Check: http://0.0.0.0:${port}/api/health`);
+  });
+
+  // 2. Connect to MongoDB in background without blocking server startup
+  connectDB().catch((err) => {
+    console.error('[MongoDB Startup Warning]:', err.message);
   });
 };
 
